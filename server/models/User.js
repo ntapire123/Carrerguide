@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 // Clear any existing model to avoid caching issues
 if (mongoose.models.User) {
@@ -36,14 +38,74 @@ const RecommendationSchema = new mongoose.Schema({
   action_plan: ActionPlanSchema
 }, { _id: false });
 
-// Define user schema
+// Define user schema with authentication fields
 const UserSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  skills: [{ type: String }],
-  hobbies: [{ type: String }],
-  careerGoal: { type: String },
-  recommendations: [RecommendationSchema]
-}, { timestamps: true });
+  name: { 
+    type: String, 
+    required: [true, 'Please add a name'],
+    trim: true,
+    maxlength: [50, 'Name cannot be more than 50 characters']
+  },
+  email: { 
+    type: String, 
+    required: [true, 'Please add an email'],
+    unique: true,
+    match: [
+      /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
+      'Please add a valid email'
+    ]
+  },
+  password: {
+    type: String,
+    required: [true, 'Please add a password'],
+    minlength: 6,
+    select: false
+  },
+  resetPasswordToken: String,
+  resetPasswordExpire: Date,
+  skills: [{ 
+    type: String,
+    trim: true 
+  }],
+  hobbies: [{ 
+    type: String,
+    trim: true 
+  }],
+  careerGoal: { 
+    type: String,
+    trim: true 
+  },
+  recommendations: [RecommendationSchema],
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+}, {
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
+});
+
+// Encrypt password using bcrypt
+UserSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) {
+    next();
+  }
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+});
+
+// Sign JWT and return
+UserSchema.methods.getSignedJwtToken = function() {
+  return jwt.sign(
+    { id: this._id },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRE || '30d' }
+  );
+};
+
+// Match user entered password to hashed password in database
+UserSchema.methods.matchPassword = async function(enteredPassword) {
+  return await bcrypt.compare(enteredPassword, this.password);
+};
 
 module.exports = mongoose.model('User', UserSchema);
